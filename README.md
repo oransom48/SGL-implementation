@@ -26,22 +26,42 @@ Graph Convolutional Networks (GCNs) have become the de facto standard for collab
 | **Graph Encoder Backbone** | Bi-Interaction GCN | Light Graph Convolution | Light Graph Convolution |
 | **Feature Transformation ($\mathbf{W}_1, \mathbf{W}_2$)** | Yes (1st-order sum + 2nd-order element-wise product) | No (Identity) | No (Identity) |
 | **Nonlinear Activation** | `LeakyReLU(0.2)` + Message Dropout | None | None |
-| **Layer Combination (Readout)** | Concatenation: $\mathbf{e}_u^* = \Vert_{l=0}^L \hat{\mathbf{e}}_u^{(l)}$ | Uniform Average: $\mathbf{e}_u^* = \frac{1}{L+1}\sum_{l=0}^L \mathbf{e}_u^{(l)}$ | Uniform Average: $\mathbf{e}_u^* = \frac{1}{L+1}\sum_{l=0}^L \mathbf{e}_u^{(l)}$ |
+| **Layer Combination (Readout)** | Concatenation: $\mathbf{e}_u^* = [\mathbf{e}_u^{(0)} \mathbin{\Vert} \hat{\mathbf{e}}_u^{(1)} \mathbin{\Vert} \dots \mathbin{\Vert} \hat{\mathbf{e}}_u^{(L)}]$ | Uniform Average: $\mathbf{e}_u^* = \frac{1}{L+1}\sum_{l=0}^L \mathbf{e}_u^{(l)}$ | Uniform Average: $\mathbf{e}_u^* = \frac{1}{L+1}\sum_{l=0}^L \mathbf{e}_u^{(l)}$ |
 | **Graph Augmentation** | Optional Sparse Laplacian Dropout | Optional Edge Dropout | Multi-View Structural Augmentation (**ND**, **ED**, **RW**) |
-| **Training Objective** | $\mathcal{L}_{\text{BPR}} + \lambda_2 \|\Theta\|_2^2$ | $\mathcal{L}_{\text{BPR}} + \lambda_2 \|\Theta\|_2^2$ | $\mathcal{L}_{\text{BPR}} + \lambda_1 \mathcal{L}_{\text{ssl}}^{\text{InfoNCE}} + \lambda_2 \|\Theta\|_2^2$ |
+| **Training Objective** | $\mathcal{L}_{\text{BPR}} + \lambda_2 \lVert\Theta\rVert_2^2$ | $\mathcal{L}_{\text{BPR}} + \lambda_2 \lVert\Theta\rVert_2^2$ | $\mathcal{L}_{\text{BPR}} + \lambda_1 \mathcal{L}_{\text{ssl}}^{\text{InfoNCE}} + \lambda_2 \lVert\Theta\rVert_2^2$ |
 
 ### Mathematical Formulations
 
-1. **NGCF Propagation Layer**:
-   $$\mathbf{e}_u^{(l)} = \text{LeakyReLU}\!\left(\mathbf{W}_1^{(l)}\!\left(\mathbf{e}_u^{(l-1)} + \sum_{i \in \mathcal{N}_u} \tilde{A}_{ui}\mathbf{e}_i^{(l-1)}\right) + \mathbf{b}_1^{(l)} + \mathbf{W}_2^{(l)}\!\left(\mathbf{e}_u^{(l-1)} \odot \sum_{i \in \mathcal{N}_u} \tilde{A}_{ui}\mathbf{e}_i^{(l-1)}\right) + \mathbf{b}_2^{(l)}\right)$$
+#### 1. NGCF Message Propagation & Layer Aggregation
+$$
+\mathbf{e}_u^{(l)} = \operatorname{LeakyReLU}\left(\mathbf{W}_1^{(l)}\left(\mathbf{e}_u^{(l-1)} + \sum_{i \in \mathcal{N}_u} \tilde{A}_{ui}\mathbf{e}_i^{(l-1)}\right) + \mathbf{b}_1^{(l)} + \mathbf{W}_2^{(l)}\left(\mathbf{e}_u^{(l-1)} \odot \sum_{i \in \mathcal{N}_u} \tilde{A}_{ui}\mathbf{e}_i^{(l-1)}\right) + \mathbf{b}_2^{(l)}\right)
+$$
+Representations across all $L+1$ layers are $L_2$-normalized and concatenated:
+$$
+\mathbf{e}_u^* = [\mathbf{e}_u^{(0)} \mathbin{\Vert} \hat{\mathbf{e}}_u^{(1)} \mathbin{\Vert} \dots \mathbin{\Vert} \hat{\mathbf{e}}_u^{(L)}], \qquad \hat{\mathbf{e}}_u^{(l)} = \frac{\mathbf{e}_u^{(l)}}{\lVert\mathbf{e}_u^{(l)}\rVert_2}
+$$
 
-2. **LightGCN Propagation & Readout (shared by LightGCN and SGL)**:
-   $$\mathbf{E}^{(l)} = \tilde{\mathbf{A}}\,\mathbf{E}^{(l-1)}, \qquad \mathbf{E}^* = \frac{1}{L+1}\sum_{l=0}^{L} \mathbf{E}^{(l)}, \qquad \tilde{\mathbf{A}} = \mathbf{D}^{-1/2}\mathbf{A}\mathbf{D}^{-1/2}$$
+#### 2. LightGCN Linear Propagation & Readout
+$$
+\mathbf{E}^{(l)} = \tilde{\mathbf{A}}\,\mathbf{E}^{(l-1)}, \qquad \mathbf{E}^* = \frac{1}{L+1}\sum_{l=0}^{L} \mathbf{E}^{(l)}, \qquad \tilde{\mathbf{A}} = \mathbf{D}^{-1/2}\mathbf{A}\mathbf{D}^{-1/2}
+$$
 
-3. **SGL Multi-Task Objective (BPR + InfoNCE Contrastive Loss)**:
-   $$\mathcal{L} = \mathcal{L}_{\text{BPR}} + \lambda_1 \mathcal{L}_{\text{ssl}} + \lambda_2 \|\mathbf{E}^{(0)}\|_2^2$$
-   $$\mathcal{L}_{\text{ssl}}^{\text{user}} = \sum_{u \in \mathcal{B}_u} -\log \frac{\exp\!\left(\text{sim}(\mathbf{z}_u', \mathbf{z}_u'') / \tau\right)}{\sum_{v \in \mathcal{U}} \exp\!\left(\text{sim}(\mathbf{z}_u', \mathbf{z}_v'') / \tau\right)}$$
-   where $\mathbf{z}_u', \mathbf{z}_u''$ are the $L_2$-normalized multi-layer encodings of user $u$ produced under two independently augmented graph views $s_1(\mathcal{G})$ and $s_2(\mathcal{G})$ with dropout ratio $\rho$ (`ssl_ratio`) and softmax temperature $\tau$ (`ssl_temp`).
+#### 3. SGL Multi-Task Objective (BPR + InfoNCE Contrastive SSL)
+$$
+\mathcal{L} = \mathcal{L}_{\text{BPR}} + \lambda_1 \mathcal{L}_{\text{ssl}} + \lambda_2 \lVert\mathbf{E}^{(0)}\rVert_2^2
+$$
+where the Bayesian Personalized Ranking (BPR) loss is:
+$$
+\mathcal{L}_{\text{BPR}} = \sum_{(u, i, j) \in \mathcal{O}} -\log \sigma(\hat{y}_{ui} - \hat{y}_{uj}), \qquad \hat{y}_{ui} = (\mathbf{e}_u^*)^\top \mathbf{e}_i^*
+$$
+The self-supervised contrastive loss $\mathcal{L}_{\text{ssl}} = \mathcal{L}_{\text{ssl}}^{\text{user}} + \mathcal{L}_{\text{ssl}}^{\text{item}}$ maximizes mutual agreement between representations generated from two stochastic augmented graph views $s_1(\mathcal{G})$ and $s_2(\mathcal{G})$:
+$$
+\mathcal{L}_{\text{ssl}}^{\text{user}} = \sum_{u \in \mathcal{U}} -\log \frac{\exp\left(\operatorname{sim}(\mathbf{z}_u', \mathbf{z}_u'') / \tau\right)}{\sum_{v \in \mathcal{U}} \exp\left(\operatorname{sim}(\mathbf{z}_u', \mathbf{z}_v'') / \tau\right)}
+$$
+$$
+\mathcal{L}_{\text{ssl}}^{\text{item}} = \sum_{i \in \mathcal{I}} -\log \frac{\exp\left(\operatorname{sim}(\mathbf{z}_i', \mathbf{z}_i'') / \tau\right)}{\sum_{j \in \mathcal{I}} \exp\left(\operatorname{sim}(\mathbf{z}_i', \mathbf{z}_j'') / \tau\right)}
+$$
+where $\mathbf{z}_u', \mathbf{z}_u''$ are the $L_2$-normalized multi-layer encodings ($\lVert\mathbf{z}_u\rVert_2 = 1$) under the two augmented views, $\operatorname{sim}(\mathbf{z}_u', \mathbf{z}_u'') = (\mathbf{z}_u')^\top \mathbf{z}_u''$ denotes cosine similarity, $\tau$ is the temperature hyperparameter (`ssl_temp`), and $\lambda_1, \lambda_2$ represent the SSL loss weight (`ssl_reg`) and $L_2$ regularization weight (`reg`).
 
 ---
 
